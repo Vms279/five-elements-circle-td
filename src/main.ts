@@ -51,7 +51,9 @@ root.innerHTML = `
       </div>
     </header>
     <main class="stage">
-      <div class="game-wrap"></div>
+      <div class="game-wrap">
+        <div id="towerInspector" class="tower-inspector hidden"></div>
+      </div>
       <aside class="sidepanel">
         <section class="panel"><div class="panel-title">BUILD</div><div id="build" class="build"></div></section>
         <section class="panel"><div class="panel-title">NEXT WAVE</div><div id="waveInfo" class="wave">Normal enemies</div></section>
@@ -74,9 +76,9 @@ let level = 1;
 let leak = 0;
 let enemyId = 0;
 let spawnAccumulator = 0;
-let nextLevelXp = 20;
 let totalDamage = 0;
 let boss: Enemy | null = null;
+let selectedTower: Tower | null = null;
 const enemies: Enemy[] = [];
 const towers: Tower[] = [];
 const owned = new Set<ElementType>();
@@ -108,6 +110,7 @@ function addXp(amount: number) {
   while (level < 20 && playerXp >= xpForLevel(level + 1)) {
     level += 1;
     showLevelUp();
+    if (!running) break;
   }
 }
 
@@ -116,6 +119,10 @@ function relation(attacker: ElementType, defender: ElementType | null) {
   if (counter[attacker] === defender) return 1.3;
   if (counter[defender] === attacker) return 0.7;
   return 1;
+}
+
+function relationText(attacker: ElementType) {
+  return `克制 ${counter[attacker]} · 被 ${Object.keys(counter).find(key => counter[key as ElementType] === attacker) ?? '—'} 克制`;
 }
 
 function towerBase(element: ElementType) {
@@ -171,7 +178,7 @@ function nearestTarget(tower: Tower) {
     if (!e.alive || e.t >= 0.98) continue;
     const p = enemyPosition(e);
     const d = Math.hypot(p.x - tower.x, p.y - tower.y);
-    if (d <= tower.range + 90 && e.t > bestT) { best = e; bestT = e.t; }
+    if (d <= tower.range && e.t > bestT) { best = e; bestT = e.t; }
   }
   return best;
 }
@@ -216,7 +223,6 @@ function fireTower(tower: Tower) {
 function cardPool(): Card[] {
   const cards: Card[] = [];
   for (const e of owned) {
-    const b = towerBase(e);
     cards.push({ title: `${e}·锋芒`, description: `${e}塔伤害 +12%`, apply: () => towers.filter(t => t.element === e).forEach(t => t.damage *= 1.12) });
     cards.push({ title: `${e}·疾行`, description: `${e}塔攻速 +10%`, apply: () => towers.filter(t => t.element === e).forEach(t => t.cooldown *= 0.90) });
     cards.push({ title: `${e}·延展`, description: `${e}塔射程 +12%`, apply: () => towers.filter(t => t.element === e).forEach(t => t.range *= 1.12) });
@@ -240,7 +246,7 @@ function showLevelUp() {
     const btn = document.createElement('button');
     btn.className = 'choice';
     btn.innerHTML = `<strong>${card.title}</strong><span>${card.description}</span>`;
-    btn.onclick = () => { card.apply(); overlay.classList.add('hidden'); running = true; };
+    btn.onclick = () => { card.apply(); overlay.classList.add('hidden'); running = true; refreshTowerInspector(); };
     choices.appendChild(btn);
   });
   overlay.classList.remove('hidden');
@@ -301,6 +307,84 @@ function endGame(win: boolean) {
   overlay.classList.remove('hidden');
 }
 
+function towerHitRadius(tower: Tower) {
+  const r = Math.max(24, tower.range);
+  return r;
+}
+
+function towerAtPoint(x: number, y: number) {
+  let closest: Tower | null = null;
+  let closestDistance = Infinity;
+  for (const tower of towers) {
+    const d = Math.hypot(x - tower.x, y - tower.y);
+    if (d <= towerHitRadius(tower) && d < closestDistance) {
+      closest = tower;
+      closestDistance = d;
+    }
+  }
+  return closest;
+}
+
+function formatDps(tower: Tower) {
+  return tower.damage / Math.max(tower.cooldown, 0.01);
+}
+
+function refreshTowerInspector() {
+  const inspector = document.querySelector<HTMLDivElement>('#towerInspector')!;
+  if (!selectedTower || !towers.includes(selectedTower)) {
+    inspector.classList.add('hidden');
+    inspector.innerHTML = '';
+    return;
+  }
+  const tower = selectedTower;
+  const upgradeLevel = upgrades[tower.element];
+  const relationValue = relation(tower.element, counter[tower.element]);
+  const relationTextValue = relationText(tower.element);
+  inspector.classList.remove('hidden');
+  inspector.innerHTML = `
+    <div class="tower-inspector-head">
+      <div class="tower-inspector-icon" style="background:${tower.color}">${icons[tower.element]}</div>
+      <div><strong>${tower.element}塔</strong><small>强化 ${upgradeLevel}/3</small></div>
+      <button id="closeTowerInspector" aria-label="Close">×</button>
+    </div>
+    <div class="tower-range-label">实际攻击范围 <b>${Math.round(tower.range)}</b></div>
+    <div class="tower-stat-grid">
+      <div><span>伤害</span><b>${tower.damage.toFixed(1)}</b></div>
+      <div><span>攻击间隔</span><b>${tower.cooldown.toFixed(2)}s</b></div>
+      <div><span>攻速</span><b>${(1 / Math.max(tower.cooldown, 0.01)).toFixed(2)}/s</b></div>
+      <div><span>实际DPS</span><b>${formatDps(tower).toFixed(1)}</b></div>
+      <div><span>射程</span><b>${Math.round(tower.range)}</b></div>
+      <div><span>属性倍率</span><b>×${relationValue.toFixed(2)}</b></div>
+    </div>
+    <div class="tower-effect"><span>核心效果</span><strong>${
+      tower.element === '金' ? '穿透：主目标后额外攻击2个目标' :
+      tower.element === '木' ? '持续：当前版本基础伤害型木塔' :
+      tower.element === '水' ? '控制：当前版本基础减速型水塔' :
+      tower.element === '火' ? '范围：攻击目标周围造成AOE伤害' :
+      '重击：高单次伤害，后续加入眩晕'
+    }</strong></div>
+    <div class="tower-relation">${relationTextValue}</div>
+  `;
+  inspector.querySelector<HTMLButtonElement>('#closeTowerInspector')!.onclick = (event) => {
+    event.stopPropagation();
+    selectedTower = null;
+    refreshTowerInspector();
+  };
+}
+
+function selectTowerAtPointer(event: PointerEvent) {
+  if (gameOver || !running) return;
+  const rect = canvas.getBoundingClientRect();
+  const localX = ((event.clientX - rect.left) / rect.width) * 900;
+  const localY = ((event.clientY - rect.top) / rect.height) * 700;
+  const tower = towerAtPoint(localX, localY);
+  selectedTower = tower;
+  refreshTowerInspector();
+  canvas.style.cursor = tower ? 'pointer' : 'default';
+}
+
+canvas.addEventListener('pointerdown', selectTowerAtPointer);
+
 function draw() {
   const sx = width / 900;
   const sy = height / 700;
@@ -316,8 +400,28 @@ function draw() {
   ctx.fillStyle = '#0d1827'; ctx.beginPath(); ctx.arc(450, 350, arena.pathRadius - 25, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.beginPath(); ctx.arc(450, 350, 82, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#9fb5cc'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.fillText('FIVE ELEMENTS', 450, 344); ctx.fillStyle = '#536d88'; ctx.font = '600 10px system-ui'; ctx.fillText('CIRCLE TD', 450, 362);
+
+  if (selectedTower) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(selectedTower.x, selectedTower.y, selectedTower.range, 0, Math.PI * 2);
+    ctx.fillStyle = `${selectedTower.color}16`;
+    ctx.fill();
+    ctx.strokeStyle = selectedTower.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(selectedTower.x, selectedTower.y, 25, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,.9)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   for (const tower of towers) {
-    ctx.fillStyle = tower.color; ctx.shadowColor = tower.color; ctx.shadowBlur = 16; ctx.beginPath(); ctx.arc(tower.x, tower.y, 20, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = tower.color; ctx.shadowColor = tower.color; ctx.shadowBlur = selectedTower === tower ? 24 : 16; ctx.beginPath(); ctx.arc(tower.x, tower.y, 20, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
     ctx.fillStyle = '#07101b'; ctx.font = 'bold 17px system-ui'; ctx.textAlign = 'center'; ctx.fillText(icons[tower.element], tower.x, tower.y + 6);
   }
   for (const e of enemies) {
@@ -340,6 +444,7 @@ function updateUi() {
   document.querySelector('#build')!.innerHTML = towers.map(t => `<div class="tower-row"><i style="background:${t.color}">${icons[t.element]}</i><span>${t.element}塔</span><b>${Math.round(t.damage)}</b></div>`).join('') || '<div class="muted">Choose your first tower…</div>';
   const next = xpForLevel(Math.min(level + 1, 20));
   document.querySelector('#debug')!.innerHTML = `XP ${Math.round(playerXp)} / ${next}<br/>Enemies ${enemies.filter(e => e.alive).length}<br/>Total damage ${Math.round(totalDamage)}<br/>Boss ${boss ? `${Math.round(boss.hp)} / ${Math.round(boss.maxHp)}` : '—'}`;
+  refreshTowerInspector();
 }
 
 document.querySelectorAll<HTMLButtonElement>('[data-debug]').forEach(btn => btn.onclick = () => {

@@ -1,25 +1,24 @@
 function installTowerInspectorCloseFix(){
   const inspector=document.querySelector<HTMLDivElement>('#towerInspector');
-  const canvas=document.querySelector<HTMLCanvasElement>('#game');
-  if(!inspector||!canvas){window.setTimeout(installTowerInspectorCloseFix,50);return;}
+  if(!inspector){window.setTimeout(installTowerInspectorCloseFix,50);return;}
   if(inspector.dataset.closeFixInstalled==='1')return;
   inspector.dataset.closeFixInstalled='1';
-  inspector.addEventListener('click',(event)=>{
+  const close=()=>{
+    inspector.classList.add('hidden');
+  };
+  inspector.addEventListener('pointerdown',(event)=>{
     const target=event.target as HTMLElement|null;
-    const close=target?.closest('#closeTower');
-    if(!close)return;
+    if(!target?.closest('#closeTower'))return;
     event.preventDefault();
     event.stopPropagation();
-    const rect=canvas.getBoundingClientRect();
-    canvas.dispatchEvent(new PointerEvent('pointerdown',{
-      bubbles:true,
-      cancelable:true,
-      clientX:rect.right-4,
-      clientY:rect.bottom-4,
-      pointerId:999,
-      pointerType:'mouse',
-      isPrimary:true
-    }));
-  });
+    close();
+  },true);
+  inspector.addEventListener('click',(event)=>{
+    const target=event.target as HTMLElement|null;
+    if(!target?.closest('#closeTower'))return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  },true);
 }
 installTowerInspectorCloseFix();

@@ -1,21 +1,25 @@
-type TowerPlacementState={available:number;known:boolean};
+type TowerPlacementState={available:number};
 const inventory=new Map<string,TowerPlacementState>();
 let activePlacement:string|null=null;
-let pointerDownTowerCount=0;
+let placementStartCount=0;
+let lastTowerCount=0;
+let initialized=false;
 
 function getElement(button:HTMLButtonElement){return button.dataset.e||button.dataset.pick||'';}
-function towerCount(){
+
+function readTowerCount(){
   const text=document.querySelector('#runInfo')?.textContent||'';
-  const m=text.match(/塔\s*(\d+)/);
-  return m?Number(m[1]):0;
+  const match=text.match(/(\d+)\s*\/\s*5\s*towers?/i);
+  return match?Number(match[1]):null;
 }
+
 function syncPalette(){
   document.querySelectorAll<HTMLButtonElement>('#build [data-e], #towerPalette [data-pick]').forEach(button=>{
     const e=getElement(button);
     if(!e)return;
     let state=inventory.get(e);
     if(!state){
-      state={available:1,known:true};
+      state={available:1};
       inventory.set(e,state);
     }
     const available=state.available>0;
@@ -23,18 +27,27 @@ function syncPalette(){
     button.style.opacity=available?'1':'.35';
     button.style.pointerEvents=available?'auto':'none';
     button.dataset.available=String(state.available);
-    const small=button.querySelector('small');
-    if(small){
-      small.textContent=available?` · 可放置 ×${state.available}`:' · 本轮已放置';
-    }
   });
+}
+
+function observePlacement(){
+  const count=readTowerCount();
+  if(count===null)return;
+  if(initialized&&count===0&&lastTowerCount>0){
+    inventory.clear();
+    activePlacement=null;
+    syncPalette();
+  }
+  initialized=true;
+  lastTowerCount=count;
 }
 
 document.addEventListener('click',(event)=>{
   const target=event.target as HTMLElement|null;
   const button=target?.closest<HTMLButtonElement>('#build [data-e], #towerPalette [data-pick]');
   if(!button)return;
-  const e=getElement(button),state=inventory.get(e);
+  const e=getElement(button);
+  const state=inventory.get(e);
   if(!state||state.available<=0){
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -46,29 +59,27 @@ document.addEventListener('click',(event)=>{
 const canvas=document.querySelector<HTMLCanvasElement>('#game');
 if(canvas){
   canvas.addEventListener('pointerdown',()=>{
-    if(!activePlacement)return;
-    pointerDownTowerCount=towerCount();
+    if(activePlacement===null)return;
+    placementStartCount=readTowerCount()??lastTowerCount;
   },true);
+
   canvas.addEventListener('pointerup',()=>{
-    const e=activePlacement;
-    if(!e)return;
+    const element=activePlacement;
+    if(element===null)return;
     window.setTimeout(()=>{
-      const after=towerCount();
-      const state=inventory.get(e);
-      if(!state)return;
-      if(after>pointerDownTowerCount){
-        state.available=Math.max(0,state.available-1);
+      const after=readTowerCount();
+      if(after!==null&&after>placementStartCount){
+        const state=inventory.get(element);
+        if(state)state.available=Math.max(0,state.available-1);
         activePlacement=null;
+        lastTowerCount=after;
         syncPalette();
-        return;
       }
-      const runText=document.querySelector('#runInfo')?.textContent||'';
-      if(!runText.includes(`正在放置：${e}塔`))activePlacement=null;
     },0);
   },true);
 }
 
-const observer=new MutationObserver(syncPalette);
+const observer=new MutationObserver(()=>{observePlacement();syncPalette();});
 observer.observe(document.body,{childList:true,subtree:true});
-setInterval(syncPalette,100);
+setInterval(()=>{observePlacement();syncPalette();},100);
 syncPalette();

@@ -1,24 +1,20 @@
-function installTowerInspectorCloseFix(){
+const inspectorFix=()=>{
   const inspector=document.querySelector<HTMLDivElement>('#towerInspector');
-  if(!inspector){window.setTimeout(installTowerInspectorCloseFix,50);return;}
-  if(inspector.dataset.closeFixInstalled==='1')return;
-  inspector.dataset.closeFixInstalled='1';
-  const close=()=>{
-    inspector.classList.add('hidden');
-  };
+  const canvas=document.querySelector<HTMLCanvasElement>('#game');
+  if(!inspector||!canvas){window.setTimeout(inspectorFix,50);return;}
+  let suppressed=false;
+  const close=()=>{suppressed=true;inspector.classList.add('hidden');};
+  const clearSuppression=()=>{suppressed=false;};
   inspector.addEventListener('pointerdown',(event)=>{
     const target=event.target as HTMLElement|null;
-    if(!target?.closest('#closeTower'))return;
-    event.preventDefault();
-    event.stopPropagation();
-    close();
+    if(target?.closest('#closeTower')){event.preventDefault();event.stopPropagation();close();}
   },true);
   inspector.addEventListener('click',(event)=>{
     const target=event.target as HTMLElement|null;
-    if(!target?.closest('#closeTower'))return;
-    event.preventDefault();
-    event.stopPropagation();
-    close();
+    if(target?.closest('#closeTower')){event.preventDefault();event.stopPropagation();close();}
   },true);
-}
-installTowerInspectorCloseFix();
+  canvas.addEventListener('pointerdown',()=>clearSuppression(),true);
+  const observer=new MutationObserver(()=>{if(suppressed)inspector.classList.add('hidden');});
+  observer.observe(inspector,{attributes:true,attributeFilter:['class'],childList:true});
+};
+inspectorFix();

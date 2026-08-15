@@ -11,7 +11,7 @@ function installTowerPalette(){
     stage.insertBefore(panel,stage.children[1]||null);
   }
   const buttons=panel.querySelector<HTMLElement>('#towerPaletteButtons')!;
-  const source=[...build.querySelectorAll<HTMLButtonElement>('[data-e]')];
+  const source=Array.from(build.querySelectorAll<HTMLButtonElement>('[data-e]'));
   const key=source.map(b=>b.dataset.e).join('|');
   if(buttons.dataset.key===key)return;
   buttons.dataset.key=key;

@@ -1,85 +1,78 @@
-type TowerPlacementState={available:number};
-const inventory=new Map<string,TowerPlacementState>();
-let activePlacement:string|null=null;
-let placementStartCount=0;
-let lastTowerCount=0;
-let initialized=false;
+type TowerCardState={available:number};
 
-function getElement(button:HTMLButtonElement){return button.dataset.e||button.dataset.pick||'';}
+const towerCards=new Map<string,TowerCardState>();
+let selectedCard:string|null=null;
+let placementTowerCountBefore=0;
 
-function readTowerCount(){
+function readPlacedTowerCount():number{
   const text=document.querySelector('#runInfo')?.textContent||'';
-  const match=text.match(/(\d+)\s*\/\s*5\s*towers?/i);
-  return match?Number(match[1]):null;
+  const match=text.match(/塔\s*(\d+)\s*·\s*解锁/);
+  return match?Number(match[1]):0;
 }
 
-function syncPalette(){
-  document.querySelectorAll<HTMLButtonElement>('#build [data-e], #towerPalette [data-pick]').forEach(button=>{
-    const e=getElement(button);
-    if(!e)return;
-    let state=inventory.get(e);
-    if(!state){
-      state={available:1};
-      inventory.set(e,state);
-    }
-    const available=state.available>0;
-    button.disabled=!available;
-    button.style.opacity=available?'1':'.35';
-    button.style.pointerEvents=available?'auto':'none';
-    button.dataset.available=String(state.available);
+function syncTowerCards(){
+  document.querySelectorAll<HTMLButtonElement>('#build [data-e]').forEach(button=>{
+    const element=button.dataset.e;
+    if(!element)return;
+    if(!towerCards.has(element))towerCards.set(element,{available:1});
+    const state=towerCards.get(element)!;
+    const enabled=state.available>0;
+    button.disabled=!enabled;
+    button.style.opacity=enabled?'1':'.38';
+    button.style.pointerEvents=enabled?'auto':'none';
+    button.dataset.cardAvailable=String(state.available);
+    const small=button.querySelector('small');
+    if(small)small.textContent=enabled?' · 可放置 ×1':' · 已放置';
   });
 }
 
-function observePlacement(){
-  const count=readTowerCount();
-  if(count===null)return;
-  if(initialized&&count===0&&lastTowerCount>0){
-    inventory.clear();
-    activePlacement=null;
-    syncPalette();
-  }
-  initialized=true;
-  lastTowerCount=count;
-}
-
+// Every acquired tower card is independent. Selecting A/B/C always selects that exact element.
 document.addEventListener('click',(event)=>{
   const target=event.target as HTMLElement|null;
-  const button=target?.closest<HTMLButtonElement>('#build [data-e], #towerPalette [data-pick]');
+  const button=target?.closest<HTMLButtonElement>('#build [data-e]');
   if(!button)return;
-  const e=getElement(button);
-  const state=inventory.get(e);
-  if(!state||state.available<=0){
+  const element=button.dataset.e;
+  if(!element)return;
+  const state=towerCards.get(element) || {available:1};
+  towerCards.set(element,state);
+  if(state.available<=0){
     event.preventDefault();
     event.stopImmediatePropagation();
     return;
   }
-  activePlacement=e;
+  selectedCard=element;
 },true);
 
 const canvas=document.querySelector<HTMLCanvasElement>('#game');
 if(canvas){
   canvas.addEventListener('pointerdown',()=>{
-    if(activePlacement===null)return;
-    placementStartCount=readTowerCount()??lastTowerCount;
+    if(selectedCard===null)return;
+    placementTowerCountBefore=readPlacedTowerCount();
+
+    // maze.ts keeps `placing` inside its own closure. Re-click the selected
+    // button immediately before the maze canvas handler so the requested card
+    // wins even when the side panel has just been re-rendered.
+    const button=document.querySelector<HTMLButtonElement>(`#build [data-e="${CSS.escape(selectedCard)}"]`);
+    button?.click();
   },true);
 
   canvas.addEventListener('pointerup',()=>{
-    const element=activePlacement;
+    const element=selectedCard;
     if(element===null)return;
     window.setTimeout(()=>{
-      const after=readTowerCount();
-      if(after!==null&&after>placementStartCount){
-        const state=inventory.get(element);
-        if(state)state.available=Math.max(0,state.available-1);
-        activePlacement=null;
-        lastTowerCount=after;
-        syncPalette();
+      const after=readPlacedTowerCount();
+      if(after>placementTowerCountBefore){
+        const state=towerCards.get(element) || {available:1};
+        state.available=Math.max(0,state.available-1);
+        towerCards.set(element,state);
+        selectedCard=null;
+        syncTowerCards();
       }
     },0);
   },true);
 }
 
-const observer=new MutationObserver(()=>{observePlacement();syncPalette();});
+const observer=new MutationObserver(()=>syncTowerCards());
 observer.observe(document.body,{childList:true,subtree:true});
-setInterval(()=>{observePlacement();syncPalette();},100);
-syncPalette();
+setInterval(syncTowerCards,100);
+syncTowerCards();

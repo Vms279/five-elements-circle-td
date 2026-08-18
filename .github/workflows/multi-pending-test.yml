@@ -1,0 +1,22 @@
+name: Multi Pending Tower Regression
+on:
+  push:
+    branches: [fix/multi-pending-towers-v11]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run build
+      - run: npm install --no-save @playwright/test@1.54.2
+      - run: npx playwright install --with-deps chromium
+      - run: npx vite preview --host 127.0.0.1 --port 4173 > /tmp/vite.log 2>&1 &
+      - run: npx playwright test tests/multi-pending.spec.mjs --reporter=line

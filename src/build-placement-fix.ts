@@ -4,6 +4,18 @@ const cardCount = new Map<ElementKey, number>();
 let activeCard: ElementKey | null = null;
 let lastPlacedCount = 0;
 
+const style = document.createElement('style');
+style.textContent = `
+#build{display:grid;grid-template-columns:1fr;gap:8px}
+#build .tower-row{min-height:62px;padding:9px 10px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:linear-gradient(145deg,rgba(22,40,60,.95),rgba(10,20,34,.95));color:#e8f1fb;cursor:pointer;text-align:left;transition:transform .12s,border-color .12s,opacity .12s}
+#build .tower-row:hover:not(:disabled){transform:translateY(-1px);border-color:rgba(255,255,255,.25)}
+#build .tower-row:disabled{cursor:not-allowed}
+#build .tower-row i{width:34px;height:34px;border-radius:10px}
+#build .tower-row span{display:flex;flex-direction:column;gap:3px;font-weight:700}
+#build .tower-row small{font-size:9px;color:#7f96ad;font-weight:500}
+`;
+document.head.appendChild(style);
+
 function getPlacedCount(): number {
   const text = document.querySelector('#runInfo')?.textContent || '';
   const match = text.match(/塔\s*(\d+)/);
@@ -29,17 +41,16 @@ function renderCards() {
     const small = button.querySelector('small');
     if (small) {
       small.textContent = count > 0
-        ? (activeCard === e ? ' · 已选择，点击地图放置' : ` · 塔卡 ×${count} · 点击使用`)
+        ? (activeCard === e ? ' · 已选择 · 点击地图放置' : ` · 塔卡 ×${count} · 点击使用`)
         : ' · 塔卡已使用';
     }
     button.style.opacity = count > 0 ? '1' : '.35';
-    button.style.cursor = count > 0 ? 'pointer' : 'not-allowed';
     button.disabled = count <= 0;
   });
 }
 
-// Do not intercept the game's native button click. The game owns the placing state;
-// this controller only turns each unlocked tower into an independent persistent card.
+// Native game click remains the single source of truth for entering placement.
+// This controller only records which persistent card the player selected.
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement | null;
   const button = target?.closest<HTMLButtonElement>('#build .tower-row[data-e]');
@@ -56,8 +67,6 @@ document.addEventListener('click', (event) => {
   renderCards();
 }, false);
 
-// The native game reports which card is currently selected. When the number of
-// placed towers increases, consume only that selected card; other cards remain available.
 function reconcilePlacement() {
   const selected = getSelectedFromRun();
   if (selected) activeCard = selected;
@@ -74,6 +83,5 @@ function reconcilePlacement() {
 const observer = new MutationObserver(reconcilePlacement);
 observer.observe(document.body, { childList: true, subtree: true });
 setInterval(reconcilePlacement, 100);
-
 lastPlacedCount = getPlacedCount();
 renderCards();

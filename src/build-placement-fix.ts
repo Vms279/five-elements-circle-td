@@ -1,80 +1,79 @@
 type ElementKey = '金'|'木'|'水'|'火'|'土';
-
-const cardInventory = new Map<ElementKey, number>();
+const ELEMENTS: ElementKey[] = ['金','木','水','火','土'];
+const cardCount = new Map<ElementKey, number>();
 let activeCard: ElementKey | null = null;
-let placementStartedAt = 0;
-let towerCountBefore = 0;
+let lastPlacedCount = 0;
 
-function elementFromButton(button: HTMLButtonElement): ElementKey | null {
-  const value = button.dataset.e;
-  return value && ['金','木','水','火','土'].includes(value) ? value as ElementKey : null;
-}
-
-function placedTowerCount(): number {
+function getPlacedCount(): number {
   const text = document.querySelector('#runInfo')?.textContent || '';
   const match = text.match(/塔\s*(\d+)/);
   return match ? Number(match[1]) : 0;
 }
 
-function syncBuildButtons() {
+function getSelectedFromRun(): ElementKey | null {
+  const text = document.querySelector('#runInfo')?.textContent || '';
+  const match = text.match(/正在放置：([金木水火土])塔/);
+  return match ? match[1] as ElementKey : null;
+}
+
+function ensureCard(e: ElementKey) {
+  if (!cardCount.has(e)) cardCount.set(e, 1);
+}
+
+function renderCards() {
   document.querySelectorAll<HTMLButtonElement>('#build .tower-row[data-e]').forEach((button) => {
-    const e = elementFromButton(button);
-    if (!e) return;
-    if (!cardInventory.has(e)) cardInventory.set(e, 1);
-    const available = (cardInventory.get(e) || 0) > 0;
-    button.disabled = !available;
-    button.style.pointerEvents = 'auto';
-    button.style.cursor = available ? 'pointer' : 'not-allowed';
-    button.style.opacity = available ? '1' : '.4';
+    const e = button.dataset.e as ElementKey | undefined;
+    if (!e || !ELEMENTS.includes(e)) return;
+    ensureCard(e);
+    const count = cardCount.get(e) || 0;
+    const small = button.querySelector('small');
+    if (small) {
+      small.textContent = count > 0
+        ? (activeCard === e ? ' · 已选择，点击地图放置' : ` · 塔卡 ×${count} · 点击使用`)
+        : ' · 塔卡已使用';
+    }
+    button.style.opacity = count > 0 ? '1' : '.35';
+    button.style.cursor = count > 0 ? 'pointer' : 'not-allowed';
+    button.disabled = count <= 0;
   });
 }
 
-// The main game redraws the Build list frequently. Handle selection from a
-// stable document-level pointer event and invoke the game's existing onclick
-// directly, so the selected element is never lost during a DOM rebuild.
-document.addEventListener('pointerdown', (event) => {
-  const target = event.target as HTMLElement | null;
-  const button = target?.closest<HTMLButtonElement>('#build .tower-row[data-e]');
-  if (!button) return;
-  const e = elementFromButton(button);
-  if (!e || (cardInventory.get(e) || 0) <= 0) {
-    event.preventDefault();
-    event.stopPropagation();
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  activeCard = e;
-  towerCountBefore = placedTowerCount();
-  placementStartedAt = performance.now();
-  button.onclick?.(new MouseEvent('click', { bubbles: false, cancelable: true }));
-}, true);
-
-// Suppress the browser's follow-up click because pointerdown already selected
-// the card and called the game's original handler.
+// Do not intercept the game's native button click. The game owns the placing state;
+// this controller only turns each unlocked tower into an independent persistent card.
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement | null;
   const button = target?.closest<HTMLButtonElement>('#build .tower-row[data-e]');
   if (!button) return;
-  if (performance.now() - placementStartedAt < 350) {
+  const e = button.dataset.e as ElementKey | undefined;
+  if (!e) return;
+  ensureCard(e);
+  if ((cardCount.get(e) || 0) <= 0) {
     event.preventDefault();
-    event.stopPropagation();
+    event.stopImmediatePropagation();
+    return;
   }
-}, true);
+  activeCard = e;
+  renderCards();
+}, false);
 
-const canvas = document.querySelector<HTMLCanvasElement>('#game');
-canvas?.addEventListener('pointerup', () => {
-  if (!activeCard) return;
-  const e = activeCard;
-  window.setTimeout(() => {
-    if (placedTowerCount() > towerCountBefore) {
-      cardInventory.set(e, Math.max(0, (cardInventory.get(e) || 1) - 1));
-      activeCard = null;
-      syncBuildButtons();
-    }
-  }, 0);
-}, true);
+// The native game reports which card is currently selected. When the number of
+// placed towers increases, consume only that selected card; other cards remain available.
+function reconcilePlacement() {
+  const selected = getSelectedFromRun();
+  if (selected) activeCard = selected;
+  const count = getPlacedCount();
+  if (count > lastPlacedCount && activeCard) {
+    const current = cardCount.get(activeCard) || 0;
+    cardCount.set(activeCard, Math.max(0, current - 1));
+    activeCard = null;
+  }
+  lastPlacedCount = count;
+  renderCards();
+}
 
-const observer = new MutationObserver(syncBuildButtons);
+const observer = new MutationObserver(reconcilePlacement);
 observer.observe(document.body, { childList: true, subtree: true });
-syncBuildButtons();
+setInterval(reconcilePlacement, 100);
+
+lastPlacedCount = getPlacedCount();
+renderCards();
